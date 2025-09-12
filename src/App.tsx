@@ -1,37 +1,69 @@
+// src/App.tsx
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useAppDispatch, useAppSelector } from './app/store'
-import { selectSections, upsertMany, Article } from './features/news/newsSlice'
-import { useGetArchiveQuery, useLazyGetArchiveQuery } from './features/news/nytApi'
+import { selectSections, upsertMany, Article, selectMode, setMode } from './features/news/newsSlice'
+import {
+  useGetArchiveQuery,
+  useLazyGetArchiveQuery,
+  useGetTimesWireQuery,
+  useLazyGetTimesWireQuery,
+} from './features/news/nytApi'
 
 function monthAdd(d: Date, delta: number) { const nd = new Date(d); nd.setDate(1); nd.setMonth(nd.getMonth()+delta); return nd }
 function prevMonth(d: Date) { return monthAdd(d, -1) }
-function sameYM(a: Date, b: Date) { return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() }
 function ymKey(d: Date) { return `${d.getFullYear()}-${d.getMonth()+1}` }
 
 export default function App() {
   const dispatch = useAppDispatch()
+  const mode = useAppSelector(selectMode)
+
   const [cursor, setCursor] = useState<Date | null>(null)
   const [loadedMonths, setLoadedMonths] = useState<Set<string>>(new Set())
   const [booted, setBooted] = useState(false)
 
-  // current-month polling (won't run until booted & cursor set)
+  // guard: актуальный режим для игнора устаревших ответов
+  const modeRef = useRef(mode)
+  useEffect(() => { modeRef.current = mode }, [mode])
+
+  // ===== Archive: текущий месяц (polling)
   const currentMonth = useMemo(() => new Date(), [])
   const { data: currentData } = useGetArchiveQuery(
     { year: currentMonth.getFullYear(), month: currentMonth.getMonth()+1 },
-    { pollingInterval: 60_000, skip: !booted } // polling only after boot
+    { pollingInterval: 60_000, skip: !booted || mode !== 'archive' }
   )
-
-  const [trigger, { isFetching }] = useLazyGetArchiveQuery()
+  const [triggerArchive, { isFetching: isFetchingArchive }] = useLazyGetArchiveQuery()
   const [loadingMonth, setLoadingMonth] = useState(false)
+
+  // ===== TimesWire: первая страница + пагинация offset
+  const [twOffset, setTwOffset] = useState(0)
+  const [twLoading, setTwLoading] = useState(false)
+  const [twEnd, setTwEnd] = useState(false)
+
+  const { data: twData } = useGetTimesWireQuery(
+    { source: 'nyt', section: 'all', limit: 20, offset: 0 },
+    { skip: mode !== 'timeswire' }
+  )
+  const [triggerTW] = useLazyGetTimesWireQuery()
+
   const [toast, setToast] = useState<string | null>(null)
 
-  // boot: find last available month from NYT (static first)
+  // ===== Инициализация при смене режима
   useEffect(() => {
-    (async () => {
+    setBooted(false)
+    setCursor(null)
+    setLoadedMonths(new Set())
+    // Сброс параметров TimesWire
+    setTwOffset(0); setTwLoading(false); setTwEnd(false)
+
+    if (mode !== 'archive') { setBooted(true); return }
+
+    let cancelled = false
+    ;(async () => {
       let probe = prevMonth(new Date())
       for (let i=0; i<24; i++) {
         try {
-          const res = await trigger({ year: probe.getFullYear(), month: probe.getMonth()+1 }).unwrap()
+          const res = await triggerArchive({ year: probe.getFullYear(), month: probe.getMonth()+1 }).unwrap()
+          if (cancelled || modeRef.current !== 'archive') return
           if (res.docs?.length) {
             dispatch(upsertMany(res.docs))
             setLoadedMonths(new Set([ymKey(probe)]))
@@ -41,72 +73,127 @@ export default function App() {
         } catch {}
         probe = prevMonth(probe)
       }
-      setBooted(true)
+      if (!cancelled) setBooted(true)
     })()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
 
-  // merge current month (polling)
+    return () => { cancelled = true }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mode])
+
+  // ===== Archive: вливаем поллинг текущего месяца
   useEffect(() => {
+    if (mode !== 'archive') return
     if (!currentData?.docs) return
     dispatch(upsertMany(currentData.docs))
     setToast('New articles loaded')
     const t = setTimeout(() => setToast(null), 2200)
     return () => clearTimeout(t)
-  }, [currentData, dispatch])
+  }, [currentData, dispatch, mode])
 
-  // sections grouped by date
+  // ===== TimesWire: первая страница
+  useEffect(() => {
+    if (mode !== 'timeswire') return
+    if (!twData?.docs) return
+    dispatch(upsertMany(twData.docs))
+    setTwOffset(20)                          // следующая страница
+    setTwEnd(twData.docs.length < 20)        // если меньше 20 — дальше нечего грузить
+  }, [twData, dispatch, mode])
+
+  // ===== Секции
   const sections = useAppSelector(selectSections)
 
-  // infinite scroll
+  // ===== Sentinel
   const sentinelRef = useRef<HTMLDivElement | null>(null)
+
+  // Archive: бесконечная прокрутка по месяцам
   useEffect(() => {
+    if (mode !== 'archive') return
     if (!cursor) return
     const el = sentinelRef.current
     if (!el) return
-    const io = new IntersectionObserver(async (entries) => {
-      const e = entries[0]
-      if (!e.isIntersecting || loadingMonth) return
+    let cancelled = false
+
+    const io = new IntersectionObserver(async ([entry]) => {
+      if (!entry.isIntersecting || loadingMonth) return
       const next = prevMonth(cursor)
       const key = ymKey(next)
       if (loadedMonths.has(key)) { setCursor(next); return }
       try {
         setLoadingMonth(true)
-        const res = await trigger({ year: next.getFullYear(), month: next.getMonth()+1 }).unwrap()
-        dispatch(upsertMany(res.docs))
-        setLoadedMonths(new Set([...loadedMonths, key]))
+        const res = await triggerArchive({ year: next.getFullYear(), month: next.getMonth()+1 }).unwrap()
+        if (cancelled || modeRef.current !== 'archive') return
+        if (res.docs?.length) {
+          dispatch(upsertMany(res.docs))
+          setLoadedMonths(new Set([...Array.from(loadedMonths), key]))
+        }
         setCursor(next)
-      } catch (err) {
-        setToast('Failed to load prev month')
-        setTimeout(() => setToast(null), 2500)
       } finally {
-        setLoadingMonth(false)
+        if (!cancelled) setLoadingMonth(false)
       }
-    }, { rootMargin: '900px 0px 0px 0px' })
+    }, { rootMargin: '1000px 0px 0px 0px' })
+
     io.observe(el)
-    return () => io.disconnect()
-  }, [cursor, loadedMonths, trigger, dispatch, loadingMonth])
+    return () => { cancelled = true; io.disconnect() }
+  }, [cursor, loadedMonths, triggerArchive, dispatch, loadingMonth, mode])
+
+  // TimesWire: бесконечная прокрутка offset'ами (0,20,40…)
+  useEffect(() => {
+    if (mode !== 'timeswire' || twEnd) return
+    const el = sentinelRef.current
+    if (!el) return
+    let cancelled = false
+
+    const io = new IntersectionObserver(async ([entry]) => {
+      if (!entry.isIntersecting || twLoading) return
+
+      setTwLoading(true)
+      try {
+        const res = await triggerTW({
+          source: 'nyt',
+          section: 'all',
+          limit: 20,              // TimesWire: 1..20
+          offset: twOffset        // 0, 20, 40, ...
+        }).unwrap()
+
+        // игнорируем устаревшие ответы, НО не выходим до finally
+        const batch = (cancelled || modeRef.current !== 'timeswire') ? [] : (res.docs ?? [])
+
+        if (batch.length) {
+          dispatch(upsertMany(batch))
+          setTwOffset(prev => prev + batch.length)
+        }
+        if (batch.length < 20) setTwEnd(true)
+      } catch {
+        // при ошибке можно показать тост, но лоадер всё равно снимем
+      } finally {
+        if (!cancelled) setTwLoading(false)
+      }
+    }, { rootMargin: '1000px 0px 0px 0px' })
+
+    io.observe(el)
+    return () => { cancelled = true; io.disconnect() }
+  }, [mode, twOffset, twLoading, twEnd, triggerTW, dispatch])
 
   return (
     <div className="container">
-      <Header />
+      <Header onSelectMode={(m)=>dispatch(setMode(m))} current={mode} />
       {toast && <div className="toast">{toast}</div>}
       <div className="list">
         {!booted && <Loader active={true} />}
         {booted && sections.length === 0 && (
-          <div style={{padding:'16px', color:'#9aa8b1'}}>No data available from NYTimes yet. Try scrolling or check your network/API key.</div>
+          <div style={{padding:'16px', color:'#9aa8b1'}}>No data available from NYTimes yet. Try switching mode or check your API key.</div>
         )}
         {sections.map(sec => (
           <Section key={sec.date} date={sec.date} items={sec.items} />
         ))}
         <div ref={sentinelRef} className="sentinel" />
       </div>
-      <Loader active={isFetching || !booted} />
+      <Loader active={isFetchingArchive || loadingMonth || twLoading || !booted} />
     </div>
   )
 }
 
-function Header() {
+function Header({ onSelectMode, current }:{ onSelectMode:(m:'archive'|'timeswire')=>void, current:'archive'|'timeswire' }) {
   const [open, setOpen] = useState(false)
   return (
     <>
@@ -118,12 +205,12 @@ function Header() {
         </button>
         <div className="title">NYTimes — Mobile Feed</div>
       </div>
-      <Drawer open={open} onClose={() => setOpen(false)} />
+      <Drawer open={open} onClose={() => setOpen(false)} onSelectMode={onSelectMode} current={current} />
     </>
   )
 }
 
-function Drawer({ open, onClose }:{ open:boolean, onClose:()=>void }) {
+function Drawer({ open, onClose, onSelectMode, current }:{ open:boolean, onClose:()=>void, onSelectMode:(m:'archive'|'timeswire')=>void, current:'archive'|'timeswire' }) {
   return (
     <div className={"drawer"+(open ? " open" : "")} style={{display: open ? 'grid' : 'none'}}>
       <div className="drawer__backdrop" onClick={onClose} />
@@ -136,9 +223,12 @@ function Drawer({ open, onClose }:{ open:boolean, onClose:()=>void }) {
             </svg>
           </button>
         </div>
-        <div className="menu-item">Latest</div>
-        <div className="menu-item">Bookmarks (stub)</div>
-        <div className="menu-item">Settings (stub)</div>
+        <div className="menu-item" role="button" aria-pressed={current==='archive'} onClick={()=>{ onSelectMode('archive'); onClose(); }}>
+          Load via Archive {current==='archive' ? '✓' : ''}
+        </div>
+        <div className="menu-item" role="button" aria-pressed={current==='timeswire'} onClick={()=>{ onSelectMode('timeswire'); onClose(); }}>
+          Load via TimesWire {current==='timeswire' ? '✓' : ''}
+        </div>
         <div className="menu-item">About</div>
       </div>
     </div>
