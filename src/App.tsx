@@ -38,6 +38,11 @@ export default function App() {
   const [twOffset, setTwOffset] = useState(0)
   const [twLoading, setTwLoading] = useState(false)
   const [twEnd, setTwEnd] = useState(false)
+  const twLoadingRef = useRef(false)
+  const twOffsetRef = useRef(0)
+
+  useEffect(() => { twLoadingRef.current = twLoading }, [twLoading])
+  useEffect(() => { twOffsetRef.current = twOffset }, [twOffset])
 
   const { data: twData } = useGetTimesWireQuery(
     { source: 'nyt', section: 'all', limit: 20, offset: 0 },
@@ -130,7 +135,7 @@ export default function App() {
       } finally {
         if (!cancelled) setLoadingMonth(false)
       }
-    }, { rootMargin: '1000px 0px 0px 0px' })
+    }, { rootMargin: '0px 0px 1000px 0px' })
 
     io.observe(el)
     return () => { cancelled = true; io.disconnect() }
@@ -144,35 +149,44 @@ export default function App() {
     let cancelled = false
 
     const io = new IntersectionObserver(async ([entry]) => {
-      if (!entry.isIntersecting || twLoading) return
+      if (!entry.isIntersecting || twLoadingRef.current) return
 
       setTwLoading(true)
+      twLoadingRef.current = true
       try {
         const res = await triggerTW({
           source: 'nyt',
           section: 'all',
-          limit: 20,              // TimesWire: 1..20
-          offset: twOffset        // 0, 20, 40, ...
+          limit: 20,
+          offset: twOffsetRef.current
         }).unwrap()
 
-        // игнорируем устаревшие ответы, НО не выходим до finally
         const batch = (cancelled || modeRef.current !== 'timeswire') ? [] : (res.docs ?? [])
 
         if (batch.length) {
           dispatch(upsertMany(batch))
-          setTwOffset(prev => prev + batch.length)
+          setTwOffset(prev => {
+            const next = prev + batch.length
+            twOffsetRef.current = next
+            return next
+          })
         }
         if (batch.length < 20) setTwEnd(true)
-      } catch {
-        // при ошибке можно показать тост, но лоадер всё равно снимем
+      } catch (e:any) {
+        const msg = e?.status === 429 ? 'Too many requests. Please wait...' : 'Failed to load more articles'
+        setToast(msg)
+        setTimeout(() => setToast(null), 2200)
       } finally {
-        if (!cancelled) setTwLoading(false)
+        if (!cancelled) {
+          setTwLoading(false)
+          twLoadingRef.current = false
+        }
       }
-    }, { rootMargin: '1000px 0px 0px 0px' })
+    }, { rootMargin: '0px 0px 1000px 0px' })
 
     io.observe(el)
     return () => { cancelled = true; io.disconnect() }
-  }, [mode, twOffset, twLoading, twEnd, triggerTW, dispatch])
+  }, [mode, twEnd, triggerTW, dispatch])
 
   return (
     <div className="container">

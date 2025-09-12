@@ -1,5 +1,5 @@
 // RTK Query API for NYTimes (Archive + TimesWire)
-import { createApi, fetchBaseQuery } from '@reduxjs/toolkit/query/react'
+import { createApi, fetchBaseQuery, retry } from '@reduxjs/toolkit/query/react'
 
 // чтобы TS не ругался на import.meta.env без vite-env.d.ts
 const API_KEY = (import.meta as any).env?.VITE_NYT_API_KEY ?? 'YOUR_NYT_API_KEY'
@@ -47,6 +47,14 @@ const timesWireBaseQuery = fetchBaseQuery({
   },
 })
 
+// повторяем запрос при 500/429 с экспоненциальной задержкой
+const timesWireRetryBaseQuery = retry(timesWireBaseQuery, {
+  retryCondition: (error: any, _args, { attempt }) => {
+    const status = typeof error?.status === 'number' ? error.status : 0
+    return attempt <= 3 && (status === 429 || status >= 500)
+  },
+})
+
 // Нормализация TimesWire -> наш тип
 function mapTimesWire(items: any[]): NytDoc[] {
   return (items ?? []).map((it: any) => ({
@@ -76,13 +84,13 @@ export const nytApi = createApi({
           const stat: any = await staticBaseQuery({ url: `/svc/archive/v1/${year}/${month}.json` }, api, extra)
           if (hasDocs(stat)) return { data: { docs: stat.data.response.docs as NytDoc[] } }
 
-          const arch: any = await baseQuery({ url: `/${year}/${month}.json`, params: { 'api-key': API_KEY } }, api, extra)
+          const arch: any = await baseQuery({ url: `/${year}/${month}.json`, params: { 'api-key': API_KEY } })
           if (hasDocs(arch)) return { data: { docs: arch.data.response.docs as NytDoc[] } }
 
           return { data: { docs: [] } }
         }
 
-        const arch: any = await baseQuery({ url: `/${year}/${month}.json`, params: { 'api-key': API_KEY } }, api, extra)
+        const arch: any = await baseQuery({ url: `/${year}/${month}.json`, params: { 'api-key': API_KEY } })
         if (hasDocs(arch)) return { data: { docs: arch.data.response.docs as NytDoc[] } }
         return { data: { docs: [] } }
       },
@@ -107,11 +115,10 @@ export const nytApi = createApi({
         const path = `${source}/${section}.json`; // → /nyt/svc/news/v3/content/nyt/all.json
 
 
-        const res: any = await timesWireBaseQuery(
-          { url: path, params: { 'api-key': API_KEY, limit, offset } },
-          api,
-          extra
-        )
+        const res: any = await timesWireRetryBaseQuery({
+          url: path,
+          params: { 'api-key': API_KEY, limit, offset },
+        }, api, extra)
 
         const items = res?.data?.results ?? []
         return { data: { docs: mapTimesWire(items) } }
