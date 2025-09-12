@@ -1,5 +1,5 @@
 // RTK Query API for NYTimes (Archive + TimesWire)
-import { createApi, fetchBaseQuery } from '@reduxjs/toolkit/query/react'
+import { createApi, fetchBaseQuery, retry } from '@reduxjs/toolkit/query/react'
 
 // чтобы TS не ругался на import.meta.env без vite-env.d.ts
 const API_KEY = (import.meta as any).env?.VITE_NYT_API_KEY ?? 'YOUR_NYT_API_KEY'
@@ -44,6 +44,14 @@ const timesWireBaseQuery = fetchBaseQuery({
   responseHandler: async (res) => {
     const ct = res.headers.get('content-type') || ''
     return ct.includes('application/json') ? res.json() : res.text()
+  },
+})
+
+// повторяем запрос при 500/429 с экспоненциальной задержкой
+const timesWireRetryBaseQuery = retry(timesWireBaseQuery, {
+  retryCondition: (error: any, _args, { attempt }) => {
+    const status = typeof error?.status === 'number' ? error.status : 0
+    return attempt <= 3 && (status === 429 || status >= 500)
   },
 })
 
@@ -107,7 +115,7 @@ export const nytApi = createApi({
         const path = `${source}/${section}.json`; // → /nyt/svc/news/v3/content/nyt/all.json
 
 
-        const res: any = await timesWireBaseQuery({
+        const res: any = await timesWireRetryBaseQuery({
           url: path,
           params: { 'api-key': API_KEY, limit, offset },
         }, api, extra)

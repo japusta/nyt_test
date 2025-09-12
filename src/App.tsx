@@ -172,8 +172,10 @@ export default function App() {
           })
         }
         if (batch.length < 20) setTwEnd(true)
-      } catch {
-        // при ошибке можно показать тост, но лоадер всё равно снимем
+      } catch (e:any) {
+        const msg = e?.status === 429 ? 'Too many requests. Please wait...' : 'Failed to load more articles'
+        setToast(msg)
+        setTimeout(() => setToast(null), 2200)
       } finally {
         if (!cancelled) {
           setTwLoading(false)
