@@ -16,6 +16,10 @@ function ymKey(d: Date) { return `${d.getFullYear()}-${d.getMonth()+1}` }
 export default function App() {
   const dispatch = useAppDispatch()
   const mode = useAppSelector(selectMode)
+  const ids = useAppSelector(s => s.news.ids as string[])
+
+  const idsRef = useRef<string[]>([])
+  useEffect(() => { idsRef.current = ids }, [ids])
 
   const [cursor, setCursor] = useState<Date | null>(null)
   const [loadedMonths, setLoadedMonths] = useState<Set<string>>(new Set())
@@ -29,7 +33,7 @@ export default function App() {
   const currentMonth = useMemo(() => new Date(), [])
   const { data: currentData } = useGetArchiveQuery(
     { year: currentMonth.getFullYear(), month: currentMonth.getMonth()+1 },
-    { pollingInterval: 60_000, skip: !booted || mode !== 'archive' }
+    { pollingInterval: 30_000, skip: !booted || mode !== 'archive' }
   )
   const [triggerArchive, { isFetching: isFetchingArchive }] = useLazyGetArchiveQuery()
   const [loadingMonth, setLoadingMonth] = useState(false)
@@ -46,7 +50,7 @@ export default function App() {
 
   const { data: twData } = useGetTimesWireQuery(
     { source: 'nyt', section: 'all', limit: 20, offset: 0 },
-    { skip: mode !== 'timeswire' }
+    { skip: mode !== 'timeswire', pollingInterval: 30_000 }
   )
   const [triggerTW] = useLazyGetTimesWireQuery()
 
@@ -95,13 +99,24 @@ export default function App() {
     return () => clearTimeout(t)
   }, [currentData, dispatch, mode])
 
-  // ===== TimesWire: первая страница
+  // ===== TimesWire: первая страница + поллинг
   useEffect(() => {
     if (mode !== 'timeswire') return
     if (!twData?.docs) return
+    const prevIds = idsRef.current
+    const newDocs = twData.docs.filter(d => !prevIds.includes(d._id))
     dispatch(upsertMany(twData.docs))
-    setTwOffset(20)                          // следующая страница
-    setTwEnd(twData.docs.length < 20)        // если меньше 20 — дальше нечего грузить
+    if (prevIds.length === 0) {
+      setTwOffset(twData.docs.length)
+      setTwEnd(twData.docs.length < 20)
+      return
+    }
+    if (newDocs.length) {
+      setTwOffset(prev => prev + newDocs.length)
+      setToast('New articles loaded')
+      const t = setTimeout(() => setToast(null), 2200)
+      return () => clearTimeout(t)
+    }
   }, [twData, dispatch, mode])
 
   // ===== Секции
