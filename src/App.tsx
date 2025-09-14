@@ -11,6 +11,7 @@ import {
 import Header from './components/Header'
 import Section from './components/Section'
 import Loader from './components/Loader'
+import Footer from './components/Footer'
 
 function monthAdd(d: Date, delta: number) {
   const nd = new Date(d)
@@ -32,7 +33,7 @@ export default function App() {
   const [cursor, setCursor] = useState<Date | null>(null)
   const [loadedMonths, setLoadedMonths] = useState<Set<string>>(new Set())
   const [booted, setBooted] = useState(false)
-  const [titleIso, setTitleIso] = useState<string>(() => new Date().toISOString().slice(0,10))
+  const [titleIso, setTitleIso] = useState<string>(() => new Date().toISOString().slice(0, 10))
 
   const modeRef = useRef<FeedMode>(mode)
   useEffect(() => { modeRef.current = mode }, [mode])
@@ -81,23 +82,23 @@ export default function App() {
     if (mode !== 'archive') { setBooted(true); return }
 
     let cancelled = false
-    ;(async () => {
-      let probe = prevMonth(new Date())
-      for (let i = 0; i < 24; i++) {
-        try {
-          const res = await triggerArchive({ year: probe.getFullYear(), month: probe.getMonth() + 1 }).unwrap()
-          if (cancelled || modeRef.current !== 'archive') return
-          if (res.docs?.length) {
-            dispatch(upsertMany(res.docs))
-            setLoadedMonths(new Set([ymKey(probe)]))
-            setCursor(probe)
-            break
-          }
-        } catch {}
-        probe = prevMonth(probe)
-      }
-      if (!cancelled) setBooted(true)
-    })()
+      ; (async () => {
+        let probe = prevMonth(new Date())
+        for (let i = 0; i < 24; i++) {
+          try {
+            const res = await triggerArchive({ year: probe.getFullYear(), month: probe.getMonth() + 1 }).unwrap()
+            if (cancelled || modeRef.current !== 'archive') return
+            if (res.docs?.length) {
+              dispatch(upsertMany(res.docs))
+              setLoadedMonths(new Set([ymKey(probe)]))
+              setCursor(probe)
+              break
+            }
+          } catch { }
+          probe = prevMonth(probe)
+        }
+        if (!cancelled) setBooted(true)
+      })()
 
     return () => { cancelled = true }
   }, [mode])
@@ -210,23 +211,23 @@ export default function App() {
   }, [mode, twEnd, triggerTW, dispatch, selectedCategory])
 
   useEffect(() => {
-  function updateTitleFromScroll() {
-    const secs = Array.from(document.querySelectorAll<HTMLElement>('section[data-iso]'))
-    if (!secs.length) return
-    const headerOffset = 72 
-    let current: HTMLElement | null = null
-    for (const el of secs) {
-      const top = el.getBoundingClientRect().top
-      if (top <= headerOffset) current = el
-      else break
+    function updateTitleFromScroll() {
+      const secs = Array.from(document.querySelectorAll<HTMLElement>('section[data-iso]'))
+      if (!secs.length) return
+      const headerOffset = 72
+      let current: HTMLElement | null = null
+      for (const el of secs) {
+        const top = el.getBoundingClientRect().top
+        if (top <= headerOffset) current = el
+        else break
+      }
+      const iso = (current ?? secs[0]).dataset.iso
+      if (iso) setTitleIso(iso)
     }
-    const iso = (current ?? secs[0]).dataset.iso
-    if (iso) setTitleIso(iso)
-  }
-  updateTitleFromScroll()
-  window.addEventListener('scroll', updateTitleFromScroll, { passive: true })
-  return () => window.removeEventListener('scroll', updateTitleFromScroll)
-}, [sections])  
+    updateTitleFromScroll()
+    window.addEventListener('scroll', updateTitleFromScroll, { passive: true })
+    return () => window.removeEventListener('scroll', updateTitleFromScroll)
+  }, [sections])
 
 
   return (
@@ -241,7 +242,7 @@ export default function App() {
           setTwOffset(0)
           setTwEnd(false)
         }}
-        titleDateISO={titleIso}  
+        titleDateISO={titleIso}
 
       />
       {toast && <div className="toast">{toast}</div>}
@@ -257,7 +258,8 @@ export default function App() {
         ))}
         <div ref={sentinelRef} className="sentinel" />
       </div>
-      <Loader active={isFetchingArchive || loadingMonth || twLoading || !booted} />
-    </div>
+        {/* <Loader active={isFetchingArchive || loadingMonth || twLoading || !booted} /> */}
+        <Footer />   
+      </div>
   )
 }
