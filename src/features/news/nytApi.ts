@@ -1,8 +1,10 @@
 // RTK Query API for NYTimes (Archive + TimesWire)
 import { createApi, fetchBaseQuery, retry } from '@reduxjs/toolkit/query/react'
 
-// чтобы TS не ругался на import.meta.env без vite-env.d.ts
-const API_KEY = (import.meta as any).env?.VITE_NYT_API_KEY ?? 'YOUR_NYT_API_KEY'
+// Pull the API key and offline flag from environment variables. Vite
+// populates import.meta.env at build time. If no key is provided the
+// requests will fail and the UI will display an appropriate message.
+const API_KEY = (import.meta as any).env?.VITE_NYT_API_KEY ?? 'oB0U5qaFGgKOeDAUAPaS7drPAwwYUDnu'
 const OFFLINE = ((import.meta as any).env?.VITE_OFFLINE === '1')
 
 export type NytDoc = {
@@ -38,7 +40,7 @@ const staticBaseQuery = fetchBaseQuery({
     return ct.includes('application/json') ? res.json() : res.text()
   },
 })
-// ВАЖНО: базовый URL заканчивается на /content
+// IMPORTANT: the base URL ends with /content
 const timesWireBaseQuery = fetchBaseQuery({
   baseUrl: '/nyt/svc/news/v3/content',
   responseHandler: async (res) => {
@@ -47,7 +49,7 @@ const timesWireBaseQuery = fetchBaseQuery({
   },
 })
 
-// повторяем запрос при 500/429 с экспоненциальной задержкой
+// Retry on 500/429 with exponential delay
 const timesWireRetryBaseQuery = retry(timesWireBaseQuery, {
   retryCondition: (error: any, _args, { attempt }) => {
     const status = typeof error?.status === 'number' ? error.status : 0
@@ -55,7 +57,7 @@ const timesWireRetryBaseQuery = retry(timesWireBaseQuery, {
   },
 })
 
-// Нормализация TimesWire -> наш тип
+// Normalise TimesWire -> our type
 function mapTimesWire(items: any[]): NytDoc[] {
   return (items ?? []).map((it: any) => ({
     _id: it.uri || it.url,
@@ -73,8 +75,7 @@ export const nytApi = createApi({
   reducerPath: 'nytApi',
   baseQuery: archiveBaseQuery,
   endpoints: (builder) => ({
-
-    // A) Архив (static -> official)
+    // A) Archive (static -> official)
     getArchive: builder.query<ArchiveResp, { year: number; month: number }>({
       async queryFn(arg, api, extra, baseQuery) {
         const { year, month } = arg
@@ -96,7 +97,7 @@ export const nytApi = createApi({
       },
     }),
 
-    // B) TimesWire — последние материалы
+    // B) TimesWire — latest materials
     getTimesWire: builder.query<
       ArchiveResp,
       { source?: 'all' | 'nyt' | 'inyt'; section?: string; hours?: number; limit?: number; offset?: number }
@@ -106,15 +107,13 @@ export const nytApi = createApi({
 
         const source = arg.source ?? 'nyt'
         const section = arg.section ?? 'all'
-
-        // ЛИМИТ СТРОГО 1..20 (иначе 400)
+        // LIMIT must be 1..20 (otherwise 400)
         const limit = Math.min(20, Math.max(1, arg.limit ?? 20))
         const offset = Math.max(0, arg.offset ?? 0)
 
-        // НЕ ставим ведущий "/" — иначе URL может собраться неправильно
-        const path = `${source}/${section}.json`; // → /nyt/svc/news/v3/content/nyt/all.json
-
-
+        // Do not add a leading "/"—otherwise the URL may be assembled incorrectly
+        const path = `${source}/${section}.json`
+        // → /nyt/svc/news/v3/content/nyt/all.json
         const res: any = await timesWireRetryBaseQuery({
           url: path,
           params: { 'api-key': API_KEY, limit, offset },
