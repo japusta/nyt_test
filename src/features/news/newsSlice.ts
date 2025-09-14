@@ -1,7 +1,12 @@
 import { createEntityAdapter, createSlice, PayloadAction, createSelector } from '@reduxjs/toolkit'
 import type { RootState } from '../../app/store'
 import type { NytDoc } from './nytApi'
-import { format } from 'date-fns'
+
+const dateFmt = new Intl.DateTimeFormat('en-US', {
+  month: 'long',
+  day: 'numeric',
+  year: 'numeric',
+})
 
 export type FeedMode = 'archive' | 'timeswire'
 
@@ -76,5 +81,5 @@ export const selectSections = createSelector(baseSelectors.selectAll, items => {
     byDate.set(key, bucket)
   }
   const entries = Array.from(byDate.entries()).sort((a, b) => (a[0] < b[0] ? 1 : -1))
-  return entries.map(([key, items]) => ({ date: format(new Date(key), 'MMMM d, yyyy'), items }))
+  return entries.map(([key, items]) => ({ date: dateFmt.format(new Date(key)), items }))
 })
