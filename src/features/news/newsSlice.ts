@@ -49,7 +49,7 @@ const slice = createSlice({
   name: 'news',
   initialState: adapter.getInitialState<{ newestIso: string | null; mode: FeedMode }>({
     newestIso: null,
-    mode: 'timeswire', // default to TimesWire
+    mode: 'timeswire',
   }),
   reducers: {
     setMode(state, action: PayloadAction<FeedMode>) {

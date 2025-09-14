@@ -12,8 +12,6 @@ import Header from './components/Header'
 import Section from './components/Section'
 import Loader from './components/Loader'
 
-// Helpers to compute neighbouring months and keys. These are defined
-// outside of the component to avoid re-creating them on every render.
 function monthAdd(d: Date, delta: number) {
   const nd = new Date(d)
   nd.setDate(1)
@@ -36,18 +34,12 @@ export default function App() {
   const [booted, setBooted] = useState(false)
   const [titleIso, setTitleIso] = useState<string>(() => new Date().toISOString().slice(0,10))
 
-
-  // Store the latest mode in a ref so asynchronous callbacks reference
-  // up-to-date values. Without this stale closures could trigger state
-  // updates for the wrong mode.
   const modeRef = useRef<FeedMode>(mode)
   useEffect(() => { modeRef.current = mode }, [mode])
 
-  // Category filtering. The default category 'all' yields the full feed.
   const categories = ['Science', 'General', 'Entertainment', 'Technology', 'Business', 'Health', 'Sports']
   const [selectedCategory, setSelectedCategory] = useState<string>('all')
 
-  // ===== Archive: current month (polling)
   const currentMonth = useMemo(() => new Date(), [])
   const { data: currentData } = useGetArchiveQuery(
     { year: currentMonth.getFullYear(), month: currentMonth.getMonth() + 1 },
@@ -56,7 +48,6 @@ export default function App() {
   const [triggerArchive, { isFetching: isFetchingArchive }] = useLazyGetArchiveQuery()
   const [loadingMonth, setLoadingMonth] = useState(false)
 
-  // ===== TimesWire: first page + pagination offset
   const [twOffset, setTwOffset] = useState(0)
   const [twLoading, setTwLoading] = useState(false)
   const [twEnd, setTwEnd] = useState(false)
@@ -79,12 +70,10 @@ export default function App() {
 
   const [toast, setToast] = useState<string | null>(null)
 
-  // ===== Initialisation when mode changes =====
   useEffect(() => {
     setBooted(false)
     setCursor(null)
     setLoadedMonths(new Set())
-    // Reset TimesWire parameters
     setTwOffset(0)
     setTwLoading(false)
     setTwEnd(false)
@@ -111,10 +100,8 @@ export default function App() {
     })()
 
     return () => { cancelled = true }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mode])
 
-  // ===== Archive: merge polling results for current month =====
   useEffect(() => {
     if (mode !== 'archive') return
     if (!currentData?.docs) return
@@ -124,7 +111,6 @@ export default function App() {
     return () => clearTimeout(t)
   }, [currentData, dispatch, mode])
 
-  // ===== TimesWire: first page + polling =====
   useEffect(() => {
     if (mode !== 'timeswire') return
     if (!twData?.docs) return
@@ -144,11 +130,9 @@ export default function App() {
     }
   }, [twData, dispatch, mode])
 
-  // ===== Selectors =====
   const sections = useAppSelector(selectSections)
   const sentinelRef = useRef<HTMLDivElement | null>(null)
 
-  // ===== Archive: infinite scroll by months =====
   useEffect(() => {
     if (mode !== 'archive') return
     if (!cursor) return
@@ -179,7 +163,6 @@ export default function App() {
     return () => { cancelled = true; io.disconnect() }
   }, [cursor, loadedMonths, triggerArchive, dispatch, loadingMonth, mode])
 
-  // ===== TimesWire: infinite scroll by offsets (0,20,40…) =====
   useEffect(() => {
     if (mode !== 'timeswire' || twEnd) return
     const el = sentinelRef.current
@@ -230,7 +213,7 @@ export default function App() {
   function updateTitleFromScroll() {
     const secs = Array.from(document.querySelectorAll<HTMLElement>('section[data-iso]'))
     if (!secs.length) return
-    const headerOffset = 72 // подстрой, если у тебя другая высота шапки
+    const headerOffset = 72 
     let current: HTMLElement | null = null
     for (const el of secs) {
       const top = el.getBoundingClientRect().top
@@ -243,7 +226,7 @@ export default function App() {
   updateTitleFromScroll()
   window.addEventListener('scroll', updateTitleFromScroll, { passive: true })
   return () => window.removeEventListener('scroll', updateTitleFromScroll)
-}, [sections])  // пересчитать, когда список секций меняется
+}, [sections])  
 
 
   return (
@@ -258,7 +241,7 @@ export default function App() {
           setTwOffset(0)
           setTwEnd(false)
         }}
-        titleDateISO={titleIso}          // ← НОВОЕ
+        titleDateISO={titleIso}  
 
       />
       {toast && <div className="toast">{toast}</div>}
