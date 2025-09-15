@@ -22,6 +22,10 @@ function monthAdd(d: Date, delta: number) {
 function prevMonth(d: Date) { return monthAdd(d, -1) }
 function ymKey(d: Date) { return `${d.getFullYear()}-${d.getMonth() + 1}` }
 
+// --- анти-спам задержка для API, чтобы избежать 429 ---
+const LOAD_COOLDOWN_MS = 1500 // базовая пауза между подгрузками
+const BACKOFF_429_MS = 3500   // пауза при 429
+
 export default function App() {
   const dispatch = useAppDispatch()
   const mode = useAppSelector(selectMode)
@@ -71,6 +75,9 @@ export default function App() {
 
   const [toast, setToast] = useState<string | null>(null)
 
+  const nextArchiveAllowedAtRef = useRef(0)
+  const nextTWAllowedAtRef = useRef(0)
+
   useEffect(() => {
     setBooted(false)
     setCursor(null)
@@ -78,6 +85,9 @@ export default function App() {
     setTwOffset(0)
     setTwLoading(false)
     setTwEnd(false)
+
+    nextArchiveAllowedAtRef.current = 0
+    nextTWAllowedAtRef.current = 0
 
     if (mode !== 'archive') { setBooted(true); return }
 
@@ -94,14 +104,14 @@ export default function App() {
               setCursor(probe)
               break
             }
-          } catch { }
+          } catch { /* ignore */ }
           probe = prevMonth(probe)
         }
         if (!cancelled) setBooted(true)
       })()
 
     return () => { cancelled = true }
-  }, [mode])
+  }, [mode, triggerArchive, dispatch])
 
   useEffect(() => {
     if (mode !== 'archive') return
@@ -142,10 +152,17 @@ export default function App() {
     let cancelled = false
 
     const io = new IntersectionObserver(async ([entry]) => {
-      if (!entry.isIntersecting || loadingMonth) return
+      const now = Date.now()
+      if (!entry.isIntersecting) return
+      if (loadingMonth) return
+      if (now < nextArchiveAllowedAtRef.current) return
+
+      nextArchiveAllowedAtRef.current = now + LOAD_COOLDOWN_MS
+
       const next = prevMonth(cursor)
       const key = ymKey(next)
       if (loadedMonths.has(key)) { setCursor(next); return }
+
       try {
         setLoadingMonth(true)
         const res = await triggerArchive({ year: next.getFullYear(), month: next.getMonth() + 1 }).unwrap()
@@ -155,6 +172,13 @@ export default function App() {
           setLoadedMonths(new Set([...Array.from(loadedMonths), key]))
         }
         setCursor(next)
+      } catch (e: any) {
+        // при 429 делаем бэкофф
+        if (e?.status === 429) {
+          nextArchiveAllowedAtRef.current = Date.now() + BACKOFF_429_MS
+          setToast('Too many requests. Please wait…')
+          setTimeout(() => setToast(null), 2200)
+        }
       } finally {
         if (!cancelled) setLoadingMonth(false)
       }
@@ -171,7 +195,12 @@ export default function App() {
     let cancelled = false
 
     const io = new IntersectionObserver(async ([entry]) => {
-      if (!entry.isIntersecting || twLoadingRef.current) return
+      const now = Date.now()
+      if (!entry.isIntersecting) return
+      if (twLoadingRef.current) return
+      if (now < nextTWAllowedAtRef.current) return
+
+      nextTWAllowedAtRef.current = now + LOAD_COOLDOWN_MS
 
       setTwLoading(true)
       twLoadingRef.current = true
@@ -195,9 +224,14 @@ export default function App() {
         }
         if (batch.length < 20) setTwEnd(true)
       } catch (e: any) {
-        const msg = e?.status === 429 ? 'Too many requests. Please wait…' : 'Failed to load more articles'
-        setToast(msg)
-        setTimeout(() => setToast(null), 2200)
+        if (e?.status === 429) {
+          nextTWAllowedAtRef.current = Date.now() + BACKOFF_429_MS
+          setToast('Too many requests. Please wait…')
+          setTimeout(() => setToast(null), 2200)
+        } else {
+          setToast('Failed to load more articles')
+          setTimeout(() => setToast(null), 2200)
+        }
       } finally {
         if (!cancelled) {
           setTwLoading(false)
@@ -229,7 +263,6 @@ export default function App() {
     return () => window.removeEventListener('scroll', updateTitleFromScroll)
   }, [sections])
 
-
   return (
     <div className="container">
       <Header
@@ -243,7 +276,6 @@ export default function App() {
           setTwEnd(false)
         }}
         titleDateISO={titleIso}
-
       />
       {toast && <div className="toast">{toast}</div>}
       <div className="list">
@@ -258,8 +290,8 @@ export default function App() {
         ))}
         <div ref={sentinelRef} className="sentinel" />
       </div>
-        {/* <Loader active={isFetchingArchive || loadingMonth || twLoading || !booted} /> */}
-        <Footer />   
-      </div>
+      {/* <Loader active={isFetchingArchive || loadingMonth || twLoading || !booted} /> */}
+      <Footer />
+    </div>
   )
 }

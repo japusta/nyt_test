@@ -237,7 +237,6 @@ a { color: inherit; text-decoration: none; }
   height: 2px;
 }
 
-/* Анимация вращения для восьми точек */
 .spinner {
   position: relative;
   width: 64px;
@@ -256,7 +255,6 @@ a { color: inherit; text-decoration: none; }
   margin: -5px 0 0 -5px;
 }
 
-/* позиционирование восьми точек по окружности */
 .spinner div:nth-child(1) { transform: rotate(0deg)   translate(24px); }
 .spinner div:nth-child(2) { transform: rotate(45deg)  translate(24px); }
 .spinner div:nth-child(3) { transform: rotate(90deg)  translate(24px); }
@@ -270,7 +268,6 @@ a { color: inherit; text-decoration: none; }
   to { transform: rotate(360deg); }
 }
 
-/* Стили футера */
 .footer {
   padding: 40px 16px 32px;
   text-align: center;

@@ -7,7 +7,7 @@ interface HeaderProps {
   current: FeedMode
   categories: string[]
   onCategorySelect?: (category: string) => void
-  titleDateISO?: string            // ← НОВОЕ
+  titleDateISO?: string            
 
 }
 

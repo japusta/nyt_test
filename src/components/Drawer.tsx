@@ -15,7 +15,6 @@ export default function Drawer({ open, onClose, onSelectMode, current, categorie
       <div className="drawer__backdrop" onClick={onClose} />
       <div className="drawer__panel">
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-          {/* <div style={{ fontWeight: 700 }}>Menu</div> */}
           <button className="icon-btn close-btn" onClick={onClose} aria-label="Close">
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
               <path d="M6 6l12 12M18 6l-12 12" stroke="#000000" strokeWidth="2" strokeLinecap="round" />

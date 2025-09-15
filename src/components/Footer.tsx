@@ -1,10 +1,8 @@
-// src/components/Footer.tsx
 export default function Footer() {
   return (
     <footer className="footer">
       <div className="footer-loader">
         <div className="spinner">
-          {/* восемь точек, образующих кольцо */}
           <div></div><div></div><div></div><div></div>
           <div></div><div></div><div></div><div></div>
         </div>

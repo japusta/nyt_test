@@ -1,6 +1,6 @@
 import { createApi, fetchBaseQuery, retry } from '@reduxjs/toolkit/query/react'
 
-const API_KEY = (import.meta as any).env?.VITE_NYT_API_KEY ?? 'oB0U5qaFGgKOeDAUAPaS7drPAwwYUDnu'
+const API_KEY = (import.meta as any).env?.VITE_NYT_API_KEY ?? 'ENV_API_KEY'
 const OFFLINE = ((import.meta as any).env?.VITE_OFFLINE === '1')
 
 export type NytDoc = {
